@@ -1,5 +1,5 @@
 const GEOAPIFY_API_KEY = "4127fb8b9c3e418b8693ea38fdb4578b";
-const MAX_DELAY_MINUTES = 30;
+const MAX_DELAY_MINUTES = 60;
 const MAX_DELAY_MS = MAX_DELAY_MINUTES * 60 * 1000;
 
 const fileInput = document.getElementById("fileInput");
