@@ -58,14 +58,16 @@ processBtn.addEventListener("click", async () => {
       const date = new Date(f.position.date.replace(" ", "T"));
       const diffMs = Date.now() - date;
 
-      let city = null;
       let gpsStatus = "Outside POI";
 
-      let client = null;
-      let commune = null;
-      let wilaya = null;
+      let locationParts = {
+        city: null,
+        client: null,
+        commune: null,
+        wilaya: null
+      };
 
-      /* ❌ RULE 1: GPS NOT UPDATED → DO NOTHING */
+      /* ❌ GPS NOT UPDATED */
       if (diffMs > MAX_DELAY_MS) {
         return {
           Matricule: f.gps_alias,
@@ -73,10 +75,7 @@ processBtn.addEventListener("click", async () => {
           Longitude,
           Latitude,
           Dernier_Date: f.position.date,
-          City: null,
-          Client: null,
-          Commune: null,
-          Wilaya: null,
+          Location: null,
           GPS_Status: `GPS non actualisé depuis ${f.position.date}`,
         };
       }
@@ -91,23 +90,40 @@ processBtn.addEventListener("click", async () => {
       if (insidePOI) {
         gpsStatus = "GPS actif (dans POI)";
 
-        client = matchedPOI.name || null;
-        commune = matchedPOI.commune || null;
-        wilaya = matchedPOI.wilaya || null;
+        locationParts.client = matchedPOI.name || null;
+        locationParts.commune = matchedPOI.commune || null;
+        locationParts.wilaya = matchedPOI.wilaya || null;
 
       } else {
         gpsStatus = "GPS actif (hors POI)";
 
-        /* 🌐 RULE 2: ONLY HERE CALL API */
         try {
           const res = await fetch(
             `https://api.geoapify.com/v1/geocode/reverse?lat=${Latitude}&lon=${Longitude}&lang=fr&apiKey=${GEOAPIFY_API_KEY}`
           );
 
           const json = await res.json();
-          city = json.features?.[0]?.properties?.state || null;
+          const props = json.features?.[0]?.properties;
+
+          locationParts.city =
+            props?.city ||
+            props?.county ||
+            props?.state ||
+            null;
+
         } catch {}
       }
+
+      /* CLEAN LOCATION FORMAT (NO EMPTY VALUES) */
+      const Location = [
+        locationParts.city,
+        locationParts.client,
+        locationParts.commune,
+        locationParts.wilaya
+      ]
+        .map(v => (v ? v.toString().trim() : null))
+        .filter(Boolean)
+        .join(",");
 
       return {
         Matricule: f.gps_alias,
@@ -115,10 +131,7 @@ processBtn.addEventListener("click", async () => {
         Longitude,
         Latitude,
         Dernier_Date: f.position.date,
-        City: city,
-        Client: client,
-        Commune: commune,
-        Wilaya: wilaya,
+        Location,
         GPS_Status: gpsStatus,
       };
     })
