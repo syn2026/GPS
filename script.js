@@ -2,7 +2,9 @@ const GEOAPIFY_API_KEY = "4127fb8b9c3e418b8693ea38fdb4578b";
 const MAX_DELAY_MINUTES = 60;
 const MAX_DELAY_MS = MAX_DELAY_MINUTES * 60 * 1000;
 
-const fileInput = document.getElementById("fileInput");
+const ideInput = document.getElementById("ideInput");
+const dataFirstInput = document.getElementById("dataFirstInput");
+
 const poiInput = document.getElementById("poiInput");
 const processBtn = document.getElementById("processBtn");
 
@@ -27,35 +29,45 @@ function isPointInPolygon(lat, lon, polygon) {
 }
 
 processBtn.addEventListener("click", async () => {
-  const file = fileInput.files[0];
+  const file = ideInput.files[0];
+  const dataFirstFile = dataFirstInput.files[0];
   const poiFile = poiInput.files[0];
 
-  if (!file || !poiFile) {
-    alert("Please select BOTH Fleet and POI files.");
+  if (!file || !dataFirstFile || !poiFile) {
+    alert("Please select ALL files.");
     return;
   }
 
-  let data;
+  let ideData, dataFirstData;
 
   try {
-    data = JSON.parse(await file.text());
+    ideData = JSON.parse(await file.text());
+    dataFirstData = JSON.parse(await dataFirstFile.text());
     POIS = JSON.parse(await poiFile.text());
   } catch {
     alert("Invalid JSON file.");
     return;
   }
 
-  if (!data || !Array.isArray(data.fleet)) {
-    alert("JSON does not contain 'fleet' array.");
+  const fleet = [
+    ...(ideData.fleet || []),
+    ...(dataFirstData.data || [])
+  ];
+
+  if (!fleet.length) {
+    alert("No fleet data found.");
     return;
   }
 
   const fleetGPS = await Promise.all(
-    data.fleet.map(async (f) => {
-      const Longitude = f.position.LON;
-      const Latitude = f.position.LAT;
+    fleet.map(async (f) => {
 
-      const date = new Date(f.position.date.replace(" ", "T"));
+      /* SUPPORT BOTH FORMATS */
+      const Longitude = f.position?.LON ?? f.longitude;
+      const Latitude = f.position?.LAT ?? f.latitude;
+
+      const dateRaw = f.position?.date ?? f.dernier_signal;
+      const date = new Date(dateRaw.replace(" ", "T"));
       const diffMs = Date.now() - date;
 
       let gpsStatus = "Outside POI";
@@ -67,16 +79,16 @@ processBtn.addEventListener("click", async () => {
         wilaya: null
       };
 
-      /* ❌ GPS NOT UPDATED */
+      /* GPS NOT UPDATED */
       if (diffMs > MAX_DELAY_MS) {
         return {
-          Matricule: f.gps_alias,
-          Agence: f.car_group,
+          Matricule: f.gps_alias ?? f.matricule,
+          Agence: f.car_group ?? f.groupe_vehicule?.[0]?.thing_group_designation,
           Longitude,
           Latitude,
-          Dernier_Date: f.position.date,
+          Dernier_Date: dateRaw,
           Location: null,
-          GPS_Status: `GPS non actualisé depuis ${f.position.date}`,
+          GPS_Status: `GPS non actualisé depuis ${dateRaw}`,
         };
       }
 
@@ -85,9 +97,7 @@ processBtn.addEventListener("click", async () => {
         isPointInPolygon(Latitude, Longitude, poi.points)
       );
 
-      const insidePOI = !!matchedPOI;
-
-      if (insidePOI) {
+      if (matchedPOI) {
         gpsStatus = "GPS actif (dans POI)";
 
         locationParts.client = matchedPOI.name || null;
@@ -114,7 +124,6 @@ processBtn.addEventListener("click", async () => {
         } catch {}
       }
 
-      /* CLEAN LOCATION FORMAT (NO EMPTY VALUES) */
       const Location = [
         locationParts.city,
         locationParts.client,
@@ -126,11 +135,11 @@ processBtn.addEventListener("click", async () => {
         .join(",");
 
       return {
-        Matricule: f.gps_alias,
-        Agence: f.car_group,
+        Matricule: f.gps_alias ?? f.matricule,
+        Agence: f.car_group ?? f.groupe_vehicule?.[0]?.thing_group_designation,
         Longitude,
         Latitude,
-        Dernier_Date: f.position.date,
+        Dernier_Date: dateRaw,
         Location,
         GPS_Status: gpsStatus,
       };
@@ -139,6 +148,7 @@ processBtn.addEventListener("click", async () => {
 
   const ws = XLSX.utils.json_to_sheet(fleetGPS);
   const wb = XLSX.utils.book_new();
+
   XLSX.utils.book_append_sheet(wb, ws, "FleetGPS");
 
   XLSX.writeFile(wb, "fleetGPS.xlsx");
